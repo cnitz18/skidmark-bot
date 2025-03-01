@@ -5,7 +5,8 @@
   "main": "discordbot.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node discordbot.js"
+    "start": "node discordbot.js",
+    "dev": "nodemon discordbot.js"
   },
   "author": "",
   "license": "ISC",
@@ -14,5 +15,8 @@
     "discord.js": "^14.15.3",
     "dotenv": "^16.4.5",
     "express": "^4.21.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
   }
 }
