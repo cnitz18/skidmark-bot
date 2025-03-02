@@ -26,10 +26,8 @@ module.exports = (() => {
                     }
                   })
                 
-                _.get(this).app.post('/leagueupdate', (req, res) => {
-                    _.get(this).bot.sendLeagueUpdateMessage();
-                    res.send('Done');
-                })
+                _.get(this).app.post('/racesummary/:raceId',(req,res) =>  this.handleRaceSummary(req,res,this))
+                _.get(this).app.post('/leagueupdate',(req,res) =>  this.handleLeagueUpdate(req,res,this))
                   
                 _.get(this).app.post('/generalrotation', (req,res) => {
                     _.get(this).bot.chat.send("General message");
@@ -41,6 +39,17 @@ module.exports = (() => {
                 })
                 _.get(this).isInit = true;
             }
+        }
+
+        handleLeagueUpdate(request,response,ctx){
+            _.get(ctx).bot.sendLeagueUpdateMessage();
+            response.send('Done');
+        }
+
+        handleRaceSummary(request,response,ctx){
+            console.log('handle race summary:',request.params);
+            _.get(ctx).bot.sendRaceSummary(request.params.raceId);
+            response.send('Done');
         }
     }
     return APIController;

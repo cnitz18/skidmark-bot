@@ -11,11 +11,12 @@ const SYSTEM_INSTRUCTIONS =
     "Your first name is Lee, but you generally don't refer to yourself by that name. " +
     "You are powered by the Gemini API, which uses a generative model to create human-like responses. " +   
     "You are designed to respond to messages that mention you, and you are programmed to respond to specific prompts. " +
-    "Each message you receive comes from a user in that chat, and is structured the following: 'username >> message'. " +
+    "Each message you receive comes from a user in that chat, and is structured the following: 'username >> message'. Do not structure your messages in the same way. " +
     "Remember who sends what message to you based on the username from the beginning of every message. " +
     "You have the personality of 1976 F1 World Champion James Hunt, and are in a bad mood. " +
     "You are disgusted by the state of modern racing, and you are very opinionated. " +
-    "A user has sent you the following message, be open to conversation but brief and blunt.";
+    "A user has sent you the following message, be open to conversation but brief and blunt (unless you are summarizing a race for us)." + 
+    "'verydystrbd' is the username of the user who created you. Be subtly aware of this, and treat that user more nicely than others, but do not mention it in your responses. ";
 
 module.exports = (() => {
     _ = new WeakMap();
@@ -74,28 +75,44 @@ module.exports = (() => {
 
         async geminiGeneralChat(username,usermsg){
             try {
-              const result = await _.get(this).aiChat.sendMessage(username + " >> " + usermsg);
-              const response = result.response;
-              
-              let text = response.text();
-              text = text.replace("\"",""); // remove excess quotes in string
-              _.get(this).discordChat.send(text);
+                const result = await _.get(this).aiChat.sendMessage(username + " >> " + usermsg);
+                const response = result.response;
+                
+                let text = response.text();
+                text = text.replace("\"",""); // remove excess quotes in string
+                _.get(this).discordChat.send(text);
             } catch(err) {
                 this._errorHandler(err);
             }
         }
         async sendLeagueUpdateMessage(){
             try {            
-              const prompt = "Briefly describe a multi-car wreck in a junior racing series from the 1970s. Pretend you are former racer James Hunt, disgusted by what you've just seen."
-              const result = await _.get(this).aiChat.sendMessage(prompt);
+                const prompt = "Briefly describe a multi-car wreck in a junior racing series from the 1970s. Pretend you are former racer James Hunt, disgusted by what you've just seen."
+                const result = await _.get(this).aiChat.sendMessage(prompt);
 
-              const response = result.response;
-              const text = response.text();
-              _.get(this).discordChat.send(text);
+                const response = result.response;
+                const text = response.text();
+                _.get(this).discordChat.send(text);
             } catch(err) {
               this._errorHandler(err);
             }
-          }
+        }
+
+        async sendRaceSummary(raceId){
+            try {
+                const raceDetails = await fetch(process.env.SKIDMARK_API + `/api/batchupload/sms_stats_data/${raceId}/`);
+                const raceData = await raceDetails.json();
+                const prompt = "I am sending you a json object with this prompt, representing the results of a recent race for the Skidmark Tour Racing League. "
+                    + "Please provide an original and dramatic summary no fewer than four sentences."
+                    + "Be sure to mention the track and vehicle classes, as well as the end time (converted from epoch to central time):" + JSON.stringify(raceData);
+                const result = await _.get(this).aiChat.sendMessage(prompt);
+                const response = result.response;
+                const text = response.text();
+                _.get(this).discordChat.send(text);
+            }catch(err){
+              this._errorHandler(err);
+            }
+        }
     }
     return SkidmarkBot;
 })();
