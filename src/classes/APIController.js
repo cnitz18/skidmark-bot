@@ -18,6 +18,10 @@ module.exports = (() => {
 
         init(){
             if( !_.get(this.isInit) ){
+                _.get(this).app.get('/healthcheck', (req,res) => {
+                    res.send('OK');
+                });
+
                 _.get(this).app.use((req,res,next) => {
                     if( req.headers['x-api-key'] === process.env.BOT_SERVER_TOKEN ){
                       next();
@@ -33,7 +37,6 @@ module.exports = (() => {
                     _.get(this).bot.chat.send("General message");
                     res.send('Done');
                 })
-                  
                 _.get(this).app.listen(PORT, () => {
                     console.log(`Chorley Bot listening on port ${PORT}`)
                 })
