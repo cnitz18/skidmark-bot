@@ -30,7 +30,9 @@ module.exports = (() => {
                     }
                   })
                 
-                _.get(this).app.post('/racesummary/:raceId',(req,res) =>  this.handleRaceSummary(req,res,this))
+                _.get(this).app.post('/racesummary/:raceId', (req, res) => {
+                    this.handleRaceSummary(req, res, this);
+                })
                 _.get(this).app.post('/leagueupdate',(req,res) =>  this.handleLeagueUpdate(req,res,this))
                   
                 _.get(this).app.post('/generalrotation', (req,res) => {
@@ -50,8 +52,9 @@ module.exports = (() => {
         }
 
         handleRaceSummary(request,response,ctx){
-            console.log('handle race summary:',request.params);
-            _.get(ctx).bot.sendRaceSummary(request.params.raceId);
+            const withLeague = request.query['with-league'] === 'true'
+            console.log('handle race summary:',request.params,withLeague);
+            _.get(ctx).bot.sendRaceSummary(request.params.raceId,withLeague);
             response.send('Done');
         }
     }

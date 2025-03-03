@@ -98,13 +98,23 @@ module.exports = (() => {
             }
         }
 
-        async sendRaceSummary(raceId){
+        async sendRaceSummary(raceId,withLeague=false){
             try {
                 const raceDetails = await fetch(process.env.SKIDMARK_API + `/api/batchupload/sms_stats_data/${raceId}/`);
                 const raceData = await raceDetails.json();
-                const prompt = "I am sending you a json object with this prompt, representing the results of a recent race for the Skidmark Tour Racing League. "
+                let prompt = "I am sending you a json object with this prompt, representing the results of a recent race for the Skidmark Tour Racing League. "
                     + "Please provide an original and dramatic summary no fewer than four sentences."
-                    + "Be sure to mention the track and vehicle classes, as well as the end time (converted from epoch to central time):" + JSON.stringify(raceData);
+                    + "Be sure to mention the track and vehicle classes, as well as the end_time field (converted from epoch to central time):" + JSON.stringify(raceData);
+                
+                if( withLeague && raceData?.race?.league ){
+                    // add league info
+                    const leagueDetails = await fetch(process.env.SKIDMARK_API + `/leagues/get/stats/?id=${raceData?.race?.league}`);
+                    const leagueData = await leagueDetails.json();
+                    prompt += ". Next, here are the league details for the league that hosted this race. "
+                        + "The 'snapshot' array outlines how the standings have progressed throughout the season, for you to reference. "
+                        + "Please include a separate section of no less than 4 sentences summarizing this information in your summary: " 
+                        + JSON.stringify(leagueData);
+                }
                 const result = await _.get(this).aiChat.sendMessage(prompt);
                 const response = result.response;
                 const text = response.text();
