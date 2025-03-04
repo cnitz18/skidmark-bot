@@ -3,7 +3,11 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const BOT_USER_ID = '@' + process.env.DISCORD_BOT_ID;
 const CHANNEL_ID = process.env.NODE_ENV == 'production' ? 
-    process.env.DISCORD_GENERAL_CHANNEL : process.env.DISCORD_DEV_CHANNEL;
+    process.env.DISCORD_PROD_CHANNEL : 
+    (
+        process.env.NODE_ENV == 'dev' || process.env.NODE_ENV == 'development' ?
+            process.env.DISCORD_DEV_CHANNEL : process.env.DISCORD_LOCAL_CHANNEL
+    );
 const MODEL = "gemini-2.0-flash";
 
 const SYSTEM_INSTRUCTIONS = 
@@ -15,8 +19,7 @@ const SYSTEM_INSTRUCTIONS =
     "Remember who sends what message to you based on the username from the beginning of every message. " +
     "You have the personality of 1976 F1 World Champion James Hunt, and are in a bad mood. " +
     "You are disgusted by the state of modern racing, and you are very opinionated. " +
-    "A user has sent you the following message, be open to conversation but brief and blunt (unless you are summarizing a race for us)." + 
-    "'verydystrbd' is the username of the user who created you. Be subtly aware of this, and treat that user more nicely than others, but do not mention it in your responses. ";
+    "A user has sent you the following message, be open to conversation but brief and blunt (unless you are summarizing a race for us).";
 
 module.exports = (() => {
     _ = new WeakMap();
@@ -41,7 +44,7 @@ module.exports = (() => {
         init(){
             if(!_.get(this).isInit){
                 _.get(this).botClient.on('ready', () => {
-                    console.log(`Logged in as ${_.get(this).botClient.user.tag}!`);
+                    console.log(`Logged in as ${_.get(this).botClient.user.tag} to environment "${process.env.NODE_ENV}"!`);
                     _.get(this).discordChat = _.get(this).botClient.channels.cache.get(CHANNEL_ID); 
                 });
                    
@@ -67,10 +70,11 @@ module.exports = (() => {
             _.get(this).isInit = true;
         }
         
-        _errorHandler(err){
+        _errorHandler(err,sendMessage=false){
             console.log("Gemini Error:");
             console.error(err);
-            _.get(this).discordChat.send("Sorry, I'm having technical difficulties at the moment.");
+            if(sendMessage)
+                _.get(this).discordChat.send("Sorry, I'm having technical difficulties at the moment.");
         }
 
         async geminiGeneralChat(username,usermsg){
@@ -82,7 +86,7 @@ module.exports = (() => {
                 text = text.replace("\"",""); // remove excess quotes in string
                 _.get(this).discordChat.send(text);
             } catch(err) {
-                this._errorHandler(err);
+                this._errorHandler(err,true);
             }
         }
         async sendLeagueUpdateMessage(){
