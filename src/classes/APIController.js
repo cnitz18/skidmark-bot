@@ -1,5 +1,5 @@
 const express = require('express');
-const PORT = process.env.NODE_ENV == 'production' ? 80 : 3001
+const PORT = process.env.NODE_ENV == 'production' || process.env.NODE_ENV == 'dev' ? 80 : 3001
 
 module.exports = (() => {
     _ = new WeakMap();
