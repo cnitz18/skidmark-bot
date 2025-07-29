@@ -34,6 +34,8 @@ module.exports = (() => {
                     this.handleRaceSummary(req, res, this);
                 })
                 _.get(this).app.post('/leagueupdate',(req,res) =>  this.handleLeagueUpdate(req,res,this))
+
+                _.get(this).app.post('/leaguerecap', (req,res) => this.handleLeagueRecap(req,res,this))
                   
                 _.get(this).app.post('/generalrotation', (req,res) => {
                     _.get(this).bot.chat.send("General message");
@@ -55,6 +57,11 @@ module.exports = (() => {
             const withLeague = request.query['with-league'] === 'true'
             console.log('handle race summary:',request.params,withLeague);
             _.get(ctx).bot.sendRaceSummary(request.params.raceId,withLeague);
+            response.send('Done');
+        }
+
+        handleLeagueRecap(request,response,ctx){
+            _.get(ctx).bot.sendLeagueRecap();
             response.send('Done');
         }
     }

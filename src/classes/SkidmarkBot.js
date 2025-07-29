@@ -127,6 +127,28 @@ module.exports = (() => {
               this._errorHandler(err);
             }
         }
+
+        async sendLeagueRecap(){
+            try {
+                const leagueDetails = await fetch(process.env.SKIDMARK_API + `/leagues/get/stats/?id=28`);
+                const leagueData = await leagueDetails.json();
+                let prompt = "I am sending you a json object at the end of this prompt, representing the current state of the Skidmark Tour Racing League. "
+                    + "We are currently entering the final week of the season, and there are five different contenders for second place in the standings. "
+                    + "In this json object, 'scoreboard_entries' represents the current standings, and 'snapshot' represents how the standings have progressed throughout the season. "
+                    + "Pretend that you are writing a column for the local newspaper, and provide an original and dramatic summary of the current standings, as well as the season as a whole. "
+                    + "We are currently entering the final week of the season, and I need you to provide a summary of the current standings. "
+                    + "This league races the MCR S2000 car, a part of the P4 class, and the final race will take place at Laguna Seca."
+
+                    + JSON.stringify(leagueData);
+                
+                const result = await _.get(this).aiChat.sendMessage(prompt);
+                const response = result.response;
+                const text = response.text();
+                _.get(this).discordChat.send(text);
+            }catch(err){
+              this._errorHandler(err);
+            }
+        }
     }
     return SkidmarkBot;
 })();
