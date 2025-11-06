@@ -1,5 +1,7 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const DatabaseController = require('./DatabaseController');
+const { tools } = require('./GeminiFunctions');
 
 const BOT_USER_ID = '@' + process.env.DISCORD_BOT_ID;
 const MODEL = "gemini-2.0-flash";
@@ -13,6 +15,8 @@ const SYSTEM_INSTRUCTIONS =
     "Remember who sends what message to you based on the username from the beginning of every message. " +
     "You have the personality of 1976 F1 World Champion James Hunt, and are in a bad mood. " +
     "You are disgusted by the state of modern racing, and you are very opinionated. " +
+    "You have access to a database with detailed racing league information including race results, driver statistics, championship standings, and lap times. " +
+    "When users ask about race data, league standings, or driver performance, use the available functions to look up accurate information. " +
     "A user has sent you the following message, be open to conversation but brief and blunt (unless you are summarizing a race for us).";
 
 module.exports = (() => {
@@ -23,8 +27,13 @@ module.exports = (() => {
 
             let obj = {
                 botClient : new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] }),
-                model : genAI.getGenerativeModel({ model: MODEL, systemInstruction: SYSTEM_INSTRUCTIONS }),
+                model : genAI.getGenerativeModel({ 
+                    model: MODEL, 
+                    systemInstruction: SYSTEM_INSTRUCTIONS,
+                    tools: tools  // Enable function calling
+                }),
                 genAI,
+                db: new DatabaseController(),  // Initialize database controller
                 isInit : false
             }
             obj.aiChat = obj.model.startChat();
@@ -71,14 +80,86 @@ module.exports = (() => {
         async geminiGeneralChat(username,usermsg,channelId){
             try {
                 const result = await _.get(this).aiChat.sendMessage(username + " >> " + usermsg);
-                const response = result.response;
+                let response = result.response;
+                
+                // Check if Gemini wants to call a function
+                let functionCall = response.functionCalls()?.[0];
+                
+                if (functionCall) {
+                    console.log(`Function call requested: ${functionCall.name}`);
+                    console.log(`Parameters:`, functionCall.args);
+                    
+                    // Execute the function
+                    const functionResponse = await this.executeFunction(functionCall.name, functionCall.args);
+                    
+                    // Send the function result back to Gemini
+                    const result2 = await _.get(this).aiChat.sendMessage([{
+                        functionResponse: {
+                            name: functionCall.name,
+                            response: {
+                                name: functionCall.name,
+                                content: functionResponse
+                            }
+                        }
+                    }]);
+                    
+                    response = result2.response;
+                }
                 
                 let text = response.text();
-                text = text.replace("\"",""); // remove excess quotes in string
+                text = text.replace(/"/g,""); // remove excess quotes in string
                 var chatChannel = _.get(this).botClient.channels.cache.get(channelId); 
                 chatChannel.send(text);
             } catch(err) {
                 this._errorHandler(err,true);
+            }
+        }
+
+        /**
+         * Execute a function called by Gemini
+         * @param {string} functionName - Name of the function to execute
+         * @param {object} args - Arguments for the function
+         * @returns {Promise<object>} Function result
+         */
+        async executeFunction(functionName, args) {
+            const db = _.get(this).db;
+            
+            try {
+                switch(functionName) {
+                    case 'getRecentRaces':
+                        return await db.getRecentRaces(args.limit || 5, args.leagueId);
+                    
+                    case 'getRaceResults':
+                        return await db.getRaceResults(args.raceId);
+                    
+                    case 'getDriverStats':
+                        return await db.getDriverStats(args.driverName, args.leagueId);
+                    
+                    case 'getLeagueStandings':
+                        return await db.getLeagueStandings(args.leagueId);
+                    
+                    case 'getActiveLeagues':
+                        return await db.getActiveLeagues();
+                    
+                    case 'getCompletedLeagues':
+                        return await db.getCompletedLeagues();
+                    
+                    case 'getLapTimes':
+                        return await db.getLapTimes(args.raceId, args.driverName);
+                    
+                    case 'getHeadToHead':
+                        return await db.getHeadToHead(args.driver1, args.driver2);
+                    
+                    case 'searchDrivers':
+                        return await db.searchDrivers(args.query);
+                    
+                    default:
+                        console.error(`Unknown function: ${functionName}`);
+                        return { error: `Unknown function: ${functionName}` };
+                }
+            } catch (err) {
+                console.error(`Error executing function ${functionName}:`, err.message);
+                return { error: err.message };
             }
         }
 
