@@ -2,6 +2,7 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const DatabaseController = require('./DatabaseController');
 const { tools } = require('./GeminiFunctions');
+const { formatLapTime } = require('../utils/formatters');
 
 const BOT_USER_ID = '@' + process.env.DISCORD_BOT_ID;
 const MODEL = "gemini-2.0-flash";
@@ -17,6 +18,7 @@ const SYSTEM_INSTRUCTIONS =
     "You are disgusted by the state of modern racing, and you are very opinionated. " +
     "You have access to a database with detailed racing league information including race results, driver statistics, championship standings, and lap times. " +
     "When users ask about race data, league standings, or driver performance, use the available functions to look up accurate information. " +
+    "IMPORTANT: All lap times, sector times, and timing data in the database are stored in MILLISECONDS. When displaying times to users, you MUST use the formatLapTime function to convert them to human-readable format (e.g., 83456ms becomes '1:23.456'). Never show raw millisecond values to users. " +
     "A user has sent you the following message, be open to conversation but brief and blunt (unless you are summarizing a race for us).";
 
 module.exports = (() => {
@@ -83,9 +85,13 @@ module.exports = (() => {
                 let response = result.response;
                 
                 // Check if Gemini wants to call a function
+                var allFunctionCalls = response.functionCalls();
                 let functionCall = response.functionCalls()?.[0];
                 
                 if (functionCall) {
+                    if( allFunctionCalls.length > 1 ){
+                        console.log(`Multiple function calls requested: ${allFunctionCalls.map(fc => fc.name).join(", ")}`);
+                    }
                     console.log(`Function call requested: ${functionCall.name}`);
                     console.log(`Parameters:`, functionCall.args);
                     
@@ -173,6 +179,9 @@ module.exports = (() => {
                     
                     case 'getChampionshipStats':
                         return await db.getChampionshipStats();
+                    
+                    case 'formatLapTime':
+                        return { formatted_time: formatLapTime(args.milliseconds) };
                     
                     default:
                         console.error(`Unknown function: ${functionName}`);

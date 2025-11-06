@@ -235,6 +235,20 @@ const functionDeclarations = [
             properties: {},
             required: []
         }
+    },
+    {
+        name: "formatLapTime",
+        description: "Convert milliseconds to human-readable lap time format (e.g., 83456ms becomes '1:23.456'). ALWAYS use this function when displaying lap times, sector times, or any timing data to users.",
+        parameters: {
+            type: "object",
+            properties: {
+                milliseconds: {
+                    type: "number",
+                    description: "Time in milliseconds to format"
+                }
+            },
+            required: ["milliseconds"]
+        }
     }
 ];
 
