@@ -84,31 +84,33 @@ module.exports = (() => {
                 const result = await _.get(this).aiChat.sendMessage(username + " >> " + usermsg);
                 let response = result.response;
                 
-                // Check if Gemini wants to call a function
-                var allFunctionCalls = response.functionCalls();
-                let functionCall = response.functionCalls()?.[0];
+                // Check if Gemini wants to call function(s)
+                let functionCalls = response.functionCalls();
                 
-                if (functionCall) {
-                    if( allFunctionCalls.length > 1 ){
-                        console.log(`Multiple function calls requested: ${allFunctionCalls.map(fc => fc.name).join(", ")}`);
-                    }
-                    console.log(`Function call requested: ${functionCall.name}`);
-                    console.log(`Parameters:`, functionCall.args);
+                if (functionCalls && functionCalls.length > 0) {
+                    console.log(`${functionCalls.length} function call(s) requested: ${functionCalls.map(fc => fc.name).join(", ")}`);
                     
-                    // Execute the function
-                    const functionResponse = await this.executeFunction(functionCall.name, functionCall.args);
+                    // Execute all function calls in parallel for speed
+                    const functionResponses = await Promise.all(
+                        functionCalls.map(async (functionCall) => {
+                            console.log(`  Executing: ${functionCall.name}(${JSON.stringify(functionCall.args)})`);
+                            const result = await this.executeFunction(functionCall.name, functionCall.args);
+                            return {
+                                functionResponse: {
+                                    name: functionCall.name,
+                                    response: {
+                                        name: functionCall.name,
+                                        content: result
+                                    }
+                                }
+                            };
+                        })
+                    );
                     
-                    // Send the function result back to Gemini
-                    const result2 = await _.get(this).aiChat.sendMessage([{
-                        functionResponse: {
-                            name: functionCall.name,
-                            response: {
-                                name: functionCall.name,
-                                content: functionResponse
-                            }
-                        }
-                    }]);
+                    console.log(`  All functions completed, sending results back to Gemini`);
                     
+                    // Send all function results back to Gemini
+                    const result2 = await _.get(this).aiChat.sendMessage(functionResponses);
                     response = result2.response;
                 }
                 
