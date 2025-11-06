@@ -81,6 +81,7 @@ module.exports = (() => {
 
         async geminiGeneralChat(username,usermsg,channelId){
             try {
+                const chatChannel = _.get(this).botClient.channels.cache.get(channelId);
                 const result = await _.get(this).aiChat.sendMessage(username + " >> " + usermsg);
                 let response = result.response;
                 
@@ -88,6 +89,13 @@ module.exports = (() => {
                 let functionCalls = response.functionCalls();
                 
                 if (functionCalls && functionCalls.length > 0) {
+                    // Send the initial "thinking" response to Discord first
+                    let initialText = response.text();
+                    if (initialText) {
+                        initialText = initialText.replace(/"/g,""); // remove excess quotes
+                        await chatChannel.send(initialText);
+                    }
+                    
                     console.log(`${functionCalls.length} function call(s) requested: ${functionCalls.map(fc => fc.name).join(", ")}`);
                     
                     // Execute all function calls in parallel for speed
@@ -112,12 +120,17 @@ module.exports = (() => {
                     // Send all function results back to Gemini
                     const result2 = await _.get(this).aiChat.sendMessage(functionResponses);
                     response = result2.response;
+                    
+                    // Send the final response with function results
+                    let finalText = response.text();
+                    finalText = finalText.replace(/"/g,""); // remove excess quotes in string
+                    await chatChannel.send(finalText);
+                } else {
+                    // No function calls, just send the response
+                    let text = response.text();
+                    text = text.replace(/"/g,""); // remove excess quotes in string
+                    await chatChannel.send(text);
                 }
-                
-                let text = response.text();
-                text = text.replace(/"/g,""); // remove excess quotes in string
-                var chatChannel = _.get(this).botClient.channels.cache.get(channelId); 
-                chatChannel.send(text);
             } catch(err) {
                 this._errorHandler(err,true);
             }
