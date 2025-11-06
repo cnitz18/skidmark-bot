@@ -2,12 +2,6 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const BOT_USER_ID = '@' + process.env.DISCORD_BOT_ID;
-const CHANNEL_ID = process.env.NODE_ENV == 'production' ? 
-    process.env.DISCORD_PROD_CHANNEL : 
-    (
-        process.env.NODE_ENV == 'dev' || process.env.NODE_ENV == 'development' ?
-            process.env.DISCORD_DEV_CHANNEL : process.env.DISCORD_LOCAL_CHANNEL
-    );
 const MODEL = "gemini-2.0-flash";
 
 const SYSTEM_INSTRUCTIONS = 
@@ -37,30 +31,27 @@ module.exports = (() => {
             _.set(this, obj);
         }
 
-        get discordChat(){
-            return _.get(this).discordChat;
+        get generalChat(){
+            return _.get(this).generalChat;
         }
 
         init(){
             if(!_.get(this).isInit){
                 _.get(this).botClient.on('ready', () => {
                     console.log(`Logged in as ${_.get(this).botClient.user.tag} to environment "${process.env.NODE_ENV}"!`);
-                    _.get(this).discordChat = _.get(this).botClient.channels.cache.get(CHANNEL_ID); 
+                    _.get(this).generalChat = _.get(this).botClient.channels.cache.find(channel => channel.name === 'general');
                 });
                    
                 // Log In our bot
                 _.get(this).botClient.login(process.env.BOT_CLIENT_TOKEN);
                    
                 _.get(this).botClient.on('messageCreate', msg => {
-                    if( msg.channelId === CHANNEL_ID && 
-                        msg.author.id !== _.get(this).botClient.user.id &&
-                        msg.content.indexOf(BOT_USER_ID) !== -1 ){
-                    // You can view the msg object here with 
+                    if( msg.author.id !== _.get(this).botClient.user.id){
                         if (msg.content === 'Hello') {
                             msg.reply(`Hello ${msg.author.username}`);
                         }
                         else if( msg.content.indexOf(BOT_USER_ID) !== -1 ){
-                            this.geminiGeneralChat(msg.author.username, msg.content);
+                            this.geminiGeneralChat(msg.author.username, msg.content,msg.channelId);
                         }
                     }
                 });
@@ -74,31 +65,20 @@ module.exports = (() => {
             console.log("Gemini Error:");
             console.error(err);
             if(sendMessage)
-                _.get(this).discordChat.send("Sorry, I'm having technical difficulties at the moment.");
+                _.get(this).generalChat.send("Sorry, I'm having technical difficulties at the moment.");
         }
 
-        async geminiGeneralChat(username,usermsg){
+        async geminiGeneralChat(username,usermsg,channelId){
             try {
                 const result = await _.get(this).aiChat.sendMessage(username + " >> " + usermsg);
                 const response = result.response;
                 
                 let text = response.text();
                 text = text.replace("\"",""); // remove excess quotes in string
-                _.get(this).discordChat.send(text);
+                var chatChannel = _.get(this).botClient.channels.cache.get(channelId); 
+                chatChannel.send(text);
             } catch(err) {
                 this._errorHandler(err,true);
-            }
-        }
-        async sendLeagueUpdateMessage(){
-            try {            
-                const prompt = "Briefly describe a multi-car wreck in a junior racing series from the 1970s. Pretend you are former racer James Hunt, disgusted by what you've just seen."
-                const result = await _.get(this).aiChat.sendMessage(prompt);
-
-                const response = result.response;
-                const text = response.text();
-                _.get(this).discordChat.send(text);
-            } catch(err) {
-              this._errorHandler(err);
             }
         }
 
@@ -122,7 +102,7 @@ module.exports = (() => {
                 const result = await _.get(this).aiChat.sendMessage(prompt);
                 const response = result.response;
                 const text = response.text();
-                _.get(this).discordChat.send(text);
+                _.get(this).generalChat.send(text);
             }catch(err){
               this._errorHandler(err);
             }
@@ -144,7 +124,7 @@ module.exports = (() => {
                 const result = await _.get(this).aiChat.sendMessage(prompt);
                 const response = result.response;
                 const text = response.text();
-                _.get(this).discordChat.send(text);
+                _.get(this).generalChat.send(text);
             }catch(err){
               this._errorHandler(err);
             }
