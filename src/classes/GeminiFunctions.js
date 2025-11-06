@@ -135,6 +135,106 @@ const functionDeclarations = [
             },
             required: ["query"]
         }
+    },
+    {
+        name: "getAllRaces",
+        description: "Search and filter across ALL races in the database, including both league and non-league races. Use this for broad searches when league is not specified or when searching by track or car class.",
+        parameters: {
+            type: "object",
+            properties: {
+                limit: {
+                    type: "number",
+                    description: "Number of races to return (default 20, max 50)"
+                },
+                trackName: {
+                    type: "string",
+                    description: "Optional: Filter by track name (partial match)"
+                },
+                vehicleClass: {
+                    type: "string",
+                    description: "Optional: Filter by vehicle class name (partial match)"
+                }
+            },
+            required: []
+        }
+    },
+    {
+        name: "getDriverRaceHistory",
+        description: "Get complete race-by-race results for a specific driver across all races. Shows positions, lap times, and results from each race they participated in.",
+        parameters: {
+            type: "object",
+            properties: {
+                driverName: {
+                    type: "string",
+                    description: "The driver's name to get history for"
+                },
+                limit: {
+                    type: "number",
+                    description: "Number of races to return (default 20)"
+                }
+            },
+            required: ["driverName"]
+        }
+    },
+    {
+        name: "getRecentWinners",
+        description: "Get a list of recent race winners with their winning details. Use this when users ask about recent winners or who's been winning lately.",
+        parameters: {
+            type: "object",
+            properties: {
+                limit: {
+                    type: "number",
+                    description: "Number of recent races to check (default 10)"
+                }
+            },
+            required: []
+        }
+    },
+    {
+        name: "getMostRecentLeague",
+        description: "Get the most recent league/championship (either active or completed). Use this when users ask about 'the current championship', 'the latest season', or 'what's going on now'.",
+        parameters: {
+            type: "object",
+            properties: {
+                activeOnly: {
+                    type: "boolean",
+                    description: "If true, only return active leagues (default false)"
+                }
+            },
+            required: []
+        }
+    },
+    {
+        name: "getChampionshipWinners",
+        description: "Get a list of all championship winners from completed leagues. Use this when users ask about past champions or championship history.",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    },
+    {
+        name: "getLeagueDetails",
+        description: "Get comprehensive details about a specific league including standings, race schedule, points system, and completed races. Use this for in-depth questions about a particular championship.",
+        parameters: {
+            type: "object",
+            properties: {
+                leagueId: {
+                    type: "number",
+                    description: "The league/championship ID"
+                }
+            },
+            required: ["leagueId"]
+        }
+    },
+    {
+        name: "getChampionshipStats",
+        description: "Get championship statistics including who has won the most championships, back-to-back winners, and overall championship history. Use this for questions like 'who has won the most championships' or 'has anyone won back-to-back'.",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
     }
 ];
 

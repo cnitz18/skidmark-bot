@@ -153,6 +153,27 @@ module.exports = (() => {
                     case 'searchDrivers':
                         return await db.searchDrivers(args.query);
                     
+                    case 'getAllRaces':
+                        return await db.getAllRaces(args.limit || 20, args.trackName, args.vehicleClass);
+                    
+                    case 'getDriverRaceHistory':
+                        return await db.getDriverRaceHistory(args.driverName, args.limit || 20);
+                    
+                    case 'getRecentWinners':
+                        return await db.getRecentWinners(args.limit || 10);
+                    
+                    case 'getMostRecentLeague':
+                        return await db.getMostRecentLeague(args.activeOnly || false);
+                    
+                    case 'getChampionshipWinners':
+                        return await db.getChampionshipWinners();
+                    
+                    case 'getLeagueDetails':
+                        return await db.getLeagueDetails(args.leagueId);
+                    
+                    case 'getChampionshipStats':
+                        return await db.getChampionshipStats();
+                    
                     default:
                         console.error(`Unknown function: ${functionName}`);
                         return { error: `Unknown function: ${functionName}` };

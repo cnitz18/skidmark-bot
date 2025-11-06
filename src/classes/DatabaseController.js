@@ -283,6 +283,198 @@ module.exports = (() => {
         }
 
         /**
+         * Get the most recent league (active or completed)
+         * @param {boolean} activeOnly - If true, only return active leagues
+         * @returns {Promise<object>} Most recent league with details
+         */
+        async getMostRecentLeague(activeOnly = false) {
+            const query = `
+                SELECT 
+                    id,
+                    name,
+                    description,
+                    completed,
+                    "extraPointForFastestLap" as extra_point_for_fastest_lap
+                FROM leagues_league
+                ${activeOnly ? 'WHERE completed = false' : ''}
+                ORDER BY id DESC
+                LIMIT 1
+            `;
+            
+            const result = await this.query(query);
+            return result.rows[0] || null;
+        }
+
+        /**
+         * Get championship winners (top finisher from each completed league)
+         * @returns {Promise<array>} Array of championship winners
+         */
+        async getChampionshipWinners() {
+            const query = `
+                SELECT 
+                    l.id as league_id,
+                    l.name as league_name,
+                    e."PlayerName" as champion,
+                    e."Points" as points,
+                    e."Wins" as wins,
+                    e."Poles" as poles,
+                    e."Podiums" as podiums
+                FROM leagues_league l
+                JOIN leagues_leaguescoreboardentry e ON l.id = e.league_id
+                WHERE l.completed = true
+                    AND e."Position" = 1
+                ORDER BY l.id DESC
+            `;
+            
+            const result = await this.query(query);
+            return result.rows;
+        }
+
+        /**
+         * Get full details about a specific league including standings and race schedule
+         * @param {number} leagueId - League ID
+         * @returns {Promise<object>} Complete league information
+         */
+        async getLeagueDetails(leagueId) {
+            // Get league info
+            const leagueQuery = `
+                SELECT 
+                    id,
+                    name,
+                    description,
+                    completed,
+                    "extraPointForFastestLap" as extra_point_for_fastest_lap,
+                    img
+                FROM leagues_league
+                WHERE id = $1
+            `;
+            
+            const leagueResult = await this.query(leagueQuery, [leagueId]);
+            if (leagueResult.rows.length === 0) {
+                return null;
+            }
+            
+            const league = leagueResult.rows[0];
+            
+            // Get standings
+            const standings = await this.getLeagueStandings(leagueId);
+            
+            // Get race schedule
+            const scheduleQuery = `
+                SELECT 
+                    id,
+                    track,
+                    date,
+                    completed
+                FROM leagues_leagueracedate
+                WHERE league_id = $1
+                ORDER BY date ASC
+            `;
+            
+            const scheduleResult = await this.query(scheduleQuery, [leagueId]);
+            const schedule = scheduleResult.rows.map(row => ({
+                ...row,
+                track_name: this.refData.getTrackName(row.track)
+            }));
+            
+            // Get points system
+            const pointsQuery = `
+                SELECT 
+                    "position",
+                    points
+                FROM leagues_leaguepointsposition
+                WHERE league_id = $1
+                ORDER BY "position" ASC
+            `;
+            
+            const pointsResult = await this.query(pointsQuery, [leagueId]);
+            
+            // Get league races from history
+            const racesQuery = `
+                SELECT 
+                    h.id,
+                    h.end_time,
+                    hs."TrackId" as track_id
+                FROM batchupload_history h
+                JOIN batchupload_historysetup hs ON h.setup_id = hs.id
+                WHERE h.league_id = $1
+                    AND h.finished = true
+                ORDER BY h.end_time ASC
+            `;
+            
+            const racesResult = await this.query(racesQuery, [leagueId]);
+            const races = racesResult.rows.map(row => ({
+                ...row,
+                track_name: this.refData.getTrackName(row.track_id)
+            }));
+            
+            return {
+                league,
+                standings,
+                schedule,
+                points_system: pointsResult.rows,
+                races_completed: races
+            };
+        }
+
+        /**
+         * Get championship statistics (who won most, back-to-back winners, etc.)
+         * @returns {Promise<object>} Championship statistics
+         */
+        async getChampionshipStats() {
+            // Get all champions
+            const champions = await this.getChampionshipWinners();
+            
+            // Count championships per driver
+            const championshipCounts = {};
+            champions.forEach(champ => {
+                if (!championshipCounts[champ.champion]) {
+                    championshipCounts[champ.champion] = {
+                        name: champ.champion,
+                        championships: 0,
+                        titles: []
+                    };
+                }
+                championshipCounts[champ.champion].championships++;
+                championshipCounts[champ.champion].titles.push({
+                    league_name: champ.league_name,
+                    league_id: champ.league_id,
+                    points: champ.points,
+                    wins: champ.wins
+                });
+            });
+            
+            // Find most championships
+            const driversArray = Object.values(championshipCounts);
+            driversArray.sort((a, b) => b.championships - a.championships);
+            
+            // Check for back-to-back champions (consecutive league IDs)
+            const backToBackChampions = [];
+            for (let i = 0; i < champions.length - 1; i++) {
+                const current = champions[i];
+                const next = champions[i + 1];
+                
+                // Check if same driver and consecutive leagues
+                if (current.champion === next.champion && 
+                    Math.abs(current.league_id - next.league_id) === 1) {
+                    backToBackChampions.push({
+                        driver: current.champion,
+                        leagues: [current.league_name, next.league_name],
+                        league_ids: [current.league_id, next.league_id]
+                    });
+                }
+            }
+            
+            return {
+                total_championships: champions.length,
+                all_champions: champions,
+                most_championships: driversArray,
+                back_to_back_champions: backToBackChampions,
+                unique_champions: driversArray.length
+            };
+        }
+
+        /**
          * Get lap times for a specific race and optional driver
          * @param {number} raceId - Race history ID
          * @param {string} driverName - Optional: specific driver name
@@ -363,6 +555,146 @@ module.exports = (() => {
             
             const result = await this.query(sql, [`%${query}%`]);
             return result.rows.map(row => row.name);
+        }
+
+        /**
+         * Get all races across all leagues and standalone races
+         * @param {number} limit - Number of races to return (default 20)
+         * @param {string} trackName - Optional: filter by track name
+         * @param {string} vehicleClass - Optional: filter by vehicle class
+         * @returns {Promise<array>} Array of race objects
+         */
+        async getAllRaces(limit = 20, trackName = null, vehicleClass = null) {
+            // First, get races from database
+            const query = `
+                SELECT 
+                    h.id,
+                    h.end_time,
+                    h.start_time,
+                    h.league_id,
+                    l.name as league_name,
+                    hs."TrackId" as track_id,
+                    hs."VehicleClassId" as vehicle_class_id,
+                    hs."VehicleModelId" as vehicle_model_id
+                FROM batchupload_history h
+                JOIN batchupload_historysetup hs ON h.setup_id = hs.id
+                LEFT JOIN leagues_league l ON h.league_id = l.id
+                WHERE h.finished = true
+                    AND h."isHistoricalOrIncomplete" = false
+                ORDER BY h.end_time DESC
+                LIMIT $1
+            `;
+            
+            const result = await this.query(query, [limit * 2]); // Get more to filter
+            
+            // Enrich with reference data and filter
+            let races = result.rows.map(row => ({
+                ...row,
+                track_name: this.refData.getTrackName(row.track_id),
+                vehicle_class_name: this.refData.getVehicleClassName(row.vehicle_class_id),
+                vehicle_name: this.refData.getVehicleName(row.vehicle_model_id)
+            }));
+
+            // Apply filters if provided
+            if (trackName) {
+                const lowerTrack = trackName.toLowerCase();
+                races = races.filter(race => 
+                    race.track_name.toLowerCase().includes(lowerTrack)
+                );
+            }
+
+            if (vehicleClass) {
+                const lowerClass = vehicleClass.toLowerCase();
+                races = races.filter(race => 
+                    race.vehicle_class_name.toLowerCase().includes(lowerClass)
+                );
+            }
+
+            return races.slice(0, limit);
+        }
+
+        /**
+         * Get all results for a specific driver across all races
+         * @param {string} driverName - Driver name to search for
+         * @param {number} limit - Number of results to return (default 20)
+         * @returns {Promise<array>} Array of race results for this driver
+         */
+        async getDriverRaceHistory(driverName, limit = 20) {
+            const query = `
+                SELECT 
+                    h.id as race_id,
+                    h.end_time,
+                    h.league_id,
+                    l.name as league_name,
+                    hs."TrackId" as track_id,
+                    hs."VehicleClassId" as vehicle_class_id,
+                    r.name as driver_name,
+                    r."RacePosition" as position,
+                    r."TotalTime" as total_time,
+                    r."FastestLapTime" as fastest_lap,
+                    r."IsFastestLap" as is_fastest_lap,
+                    r."State" as state
+                FROM batchupload_historystageresult r
+                JOIN batchupload_historystage s ON r.stage_id = s.id
+                JOIN batchupload_historystages hs_stages ON hs_stages.race1_id = s.id
+                JOIN batchupload_history h ON h.stages_id = hs_stages.id
+                JOIN batchupload_historysetup hs ON h.setup_id = hs.id
+                LEFT JOIN leagues_league l ON h.league_id = l.id
+                WHERE r.name ILIKE $1
+                    AND h.finished = true
+                    AND h."isHistoricalOrIncomplete" = false
+                ORDER BY h.end_time DESC
+                LIMIT $2
+            `;
+            
+            const result = await this.query(query, [`%${driverName}%`, limit]);
+            
+            // Enrich with reference data
+            return result.rows.map(row => ({
+                ...row,
+                track_name: this.refData.getTrackName(row.track_id),
+                vehicle_class_name: this.refData.getVehicleClassName(row.vehicle_class_id)
+            }));
+        }
+
+        /**
+         * Get winners from recent races
+         * @param {number} limit - Number of races to check (default 10)
+         * @returns {Promise<array>} Array of winners with race details
+         */
+        async getRecentWinners(limit = 10) {
+            const query = `
+                SELECT 
+                    h.id as race_id,
+                    h.end_time,
+                    h.league_id,
+                    l.name as league_name,
+                    hs."TrackId" as track_id,
+                    hs."VehicleClassId" as vehicle_class_id,
+                    r.name as winner_name,
+                    r."TotalTime" as winning_time,
+                    r."FastestLapTime" as fastest_lap,
+                    r."IsFastestLap" as had_fastest_lap
+                FROM batchupload_history h
+                JOIN batchupload_historysetup hs ON h.setup_id = hs.id
+                JOIN batchupload_historystages hs_stages ON h.stages_id = hs_stages.id
+                JOIN batchupload_historystageresult r ON hs_stages.race1_id = r.stage_id
+                LEFT JOIN leagues_league l ON h.league_id = l.id
+                WHERE h.finished = true
+                    AND h."isHistoricalOrIncomplete" = false
+                    AND r."RacePosition" = 1
+                ORDER BY h.end_time DESC
+                LIMIT $1
+            `;
+            
+            const result = await this.query(query, [limit]);
+            
+            // Enrich with reference data
+            return result.rows.map(row => ({
+                ...row,
+                track_name: this.refData.getTrackName(row.track_id),
+                vehicle_class_name: this.refData.getVehicleClassName(row.vehicle_class_id)
+            }));
         }
 
         /**
