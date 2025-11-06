@@ -1,13 +1,10 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const DatabaseController = require('./DatabaseController');
+const { tools } = require('./GeminiFunctions');
+const { formatLapTime } = require('../utils/formatters');
 
 const BOT_USER_ID = '@' + process.env.DISCORD_BOT_ID;
-const CHANNEL_ID = process.env.NODE_ENV == 'production' ? 
-    process.env.DISCORD_PROD_CHANNEL : 
-    (
-        process.env.NODE_ENV == 'dev' || process.env.NODE_ENV == 'development' ?
-            process.env.DISCORD_DEV_CHANNEL : process.env.DISCORD_LOCAL_CHANNEL
-    );
 const MODEL = "gemini-2.0-flash";
 
 const SYSTEM_INSTRUCTIONS = 
@@ -19,6 +16,9 @@ const SYSTEM_INSTRUCTIONS =
     "Remember who sends what message to you based on the username from the beginning of every message. " +
     "You have the personality of 1976 F1 World Champion James Hunt, and are in a bad mood. " +
     "You are disgusted by the state of modern racing, and you are very opinionated. " +
+    "You have access to a database with detailed racing league information including race results, driver statistics, championship standings, and lap times. " +
+    "When users ask about race data, league standings, or driver performance, use the available functions to look up accurate information. " +
+    "IMPORTANT: All lap times, sector times, and timing data in the database are stored in MILLISECONDS. When displaying times to users, you MUST use the formatLapTime function to convert them to human-readable format (e.g., 83456ms becomes '1:23.456'). Never show raw millisecond values to users. " +
     "A user has sent you the following message, be open to conversation but brief and blunt (unless you are summarizing a race for us).";
 
 module.exports = (() => {
@@ -29,38 +29,40 @@ module.exports = (() => {
 
             let obj = {
                 botClient : new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] }),
-                model : genAI.getGenerativeModel({ model: MODEL, systemInstruction: SYSTEM_INSTRUCTIONS }),
+                model : genAI.getGenerativeModel({ 
+                    model: MODEL, 
+                    systemInstruction: SYSTEM_INSTRUCTIONS,
+                    tools: tools  // Enable function calling
+                }),
                 genAI,
+                db: new DatabaseController(),  // Initialize database controller
                 isInit : false
             }
             obj.aiChat = obj.model.startChat();
             _.set(this, obj);
         }
 
-        get discordChat(){
-            return _.get(this).discordChat;
+        get generalChat(){
+            return _.get(this).generalChat;
         }
 
         init(){
             if(!_.get(this).isInit){
                 _.get(this).botClient.on('ready', () => {
                     console.log(`Logged in as ${_.get(this).botClient.user.tag} to environment "${process.env.NODE_ENV}"!`);
-                    _.get(this).discordChat = _.get(this).botClient.channels.cache.get(CHANNEL_ID); 
+                    _.get(this).generalChat = _.get(this).botClient.channels.cache.find(channel => channel.name === 'general');
                 });
                    
                 // Log In our bot
                 _.get(this).botClient.login(process.env.BOT_CLIENT_TOKEN);
                    
                 _.get(this).botClient.on('messageCreate', msg => {
-                    if( msg.channelId === CHANNEL_ID && 
-                        msg.author.id !== _.get(this).botClient.user.id &&
-                        msg.content.indexOf(BOT_USER_ID) !== -1 ){
-                    // You can view the msg object here with 
+                    if( msg.author.id !== _.get(this).botClient.user.id){
                         if (msg.content === 'Hello') {
                             msg.reply(`Hello ${msg.author.username}`);
                         }
                         else if( msg.content.indexOf(BOT_USER_ID) !== -1 ){
-                            this.geminiGeneralChat(msg.author.username, msg.content);
+                            this.geminiGeneralChat(msg.author.username, msg.content,msg.channelId);
                         }
                     }
                 });
@@ -74,31 +76,135 @@ module.exports = (() => {
             console.log("Gemini Error:");
             console.error(err);
             if(sendMessage)
-                _.get(this).discordChat.send("Sorry, I'm having technical difficulties at the moment.");
+                _.get(this).generalChat.send("Sorry, I'm having technical difficulties at the moment.");
         }
 
-        async geminiGeneralChat(username,usermsg){
+        async geminiGeneralChat(username,usermsg,channelId){
             try {
+                const chatChannel = _.get(this).botClient.channels.cache.get(channelId);
                 const result = await _.get(this).aiChat.sendMessage(username + " >> " + usermsg);
-                const response = result.response;
+                let response = result.response;
                 
-                let text = response.text();
-                text = text.replace("\"",""); // remove excess quotes in string
-                _.get(this).discordChat.send(text);
+                // Check if Gemini wants to call function(s)
+                let functionCalls = response.functionCalls();
+                
+                if (functionCalls && functionCalls.length > 0) {
+                    // Send the initial "thinking" response to Discord first
+                    let initialText = response.text();
+                    if (initialText) {
+                        initialText = initialText.replace(/"/g,""); // remove excess quotes
+                        await chatChannel.send(initialText);
+                    }
+                    
+                    console.log(`${functionCalls.length} function call(s) requested: ${functionCalls.map(fc => fc.name).join(", ")}`);
+                    
+                    // Execute all function calls in parallel for speed
+                    const functionResponses = await Promise.all(
+                        functionCalls.map(async (functionCall) => {
+                            console.log(`  Executing: ${functionCall.name}(${JSON.stringify(functionCall.args)})`);
+                            const result = await this.executeFunction(functionCall.name, functionCall.args);
+                            return {
+                                functionResponse: {
+                                    name: functionCall.name,
+                                    response: {
+                                        name: functionCall.name,
+                                        content: result
+                                    }
+                                }
+                            };
+                        })
+                    );
+                    
+                    console.log(`  All functions completed, sending results back to Gemini`);
+                    
+                    // Send all function results back to Gemini
+                    const result2 = await _.get(this).aiChat.sendMessage(functionResponses);
+                    response = result2.response;
+                    
+                    // Send the final response with function results
+                    let finalText = response.text();
+                    finalText = finalText.replace(/"/g,""); // remove excess quotes in string
+                    await chatChannel.send(finalText);
+                } else {
+                    // No function calls, just send the response
+                    let text = response.text();
+                    text = text.replace(/"/g,""); // remove excess quotes in string
+                    await chatChannel.send(text);
+                }
             } catch(err) {
                 this._errorHandler(err,true);
             }
         }
-        async sendLeagueUpdateMessage(){
-            try {            
-                const prompt = "Briefly describe a multi-car wreck in a junior racing series from the 1970s. Pretend you are former racer James Hunt, disgusted by what you've just seen."
-                const result = await _.get(this).aiChat.sendMessage(prompt);
 
-                const response = result.response;
-                const text = response.text();
-                _.get(this).discordChat.send(text);
-            } catch(err) {
-              this._errorHandler(err);
+        /**
+         * Execute a function called by Gemini
+         * @param {string} functionName - Name of the function to execute
+         * @param {object} args - Arguments for the function
+         * @returns {Promise<object>} Function result
+         */
+        async executeFunction(functionName, args) {
+            const db = _.get(this).db;
+            
+            try {
+                switch(functionName) {
+                    case 'getRecentRaces':
+                        return await db.getRecentRaces(args.limit || 5, args.leagueId);
+                    
+                    case 'getRaceResults':
+                        return await db.getRaceResults(args.raceId);
+                    
+                    case 'getDriverStats':
+                        return await db.getDriverStats(args.driverName, args.leagueId);
+                    
+                    case 'getLeagueStandings':
+                        return await db.getLeagueStandings(args.leagueId);
+                    
+                    case 'getActiveLeagues':
+                        return await db.getActiveLeagues();
+                    
+                    case 'getCompletedLeagues':
+                        return await db.getCompletedLeagues();
+                    
+                    case 'getLapTimes':
+                        return await db.getLapTimes(args.raceId, args.driverName);
+                    
+                    case 'getHeadToHead':
+                        return await db.getHeadToHead(args.driver1, args.driver2);
+                    
+                    case 'searchDrivers':
+                        return await db.searchDrivers(args.query);
+                    
+                    case 'getAllRaces':
+                        return await db.getAllRaces(args.limit || 20, args.trackName, args.vehicleClass);
+                    
+                    case 'getDriverRaceHistory':
+                        return await db.getDriverRaceHistory(args.driverName, args.limit || 20);
+                    
+                    case 'getRecentWinners':
+                        return await db.getRecentWinners(args.limit || 10);
+                    
+                    case 'getMostRecentLeague':
+                        return await db.getMostRecentLeague(args.activeOnly || false);
+                    
+                    case 'getChampionshipWinners':
+                        return await db.getChampionshipWinners();
+                    
+                    case 'getLeagueDetails':
+                        return await db.getLeagueDetails(args.leagueId);
+                    
+                    case 'getChampionshipStats':
+                        return await db.getChampionshipStats();
+                    
+                    case 'formatLapTime':
+                        return { formatted_time: formatLapTime(args.milliseconds) };
+                    
+                    default:
+                        console.error(`Unknown function: ${functionName}`);
+                        return { error: `Unknown function: ${functionName}` };
+                }
+            } catch (err) {
+                console.error(`Error executing function ${functionName}:`, err.message);
+                return { error: err.message };
             }
         }
 
@@ -122,7 +228,7 @@ module.exports = (() => {
                 const result = await _.get(this).aiChat.sendMessage(prompt);
                 const response = result.response;
                 const text = response.text();
-                _.get(this).discordChat.send(text);
+                _.get(this).generalChat.send(text);
             }catch(err){
               this._errorHandler(err);
             }
@@ -144,7 +250,7 @@ module.exports = (() => {
                 const result = await _.get(this).aiChat.sendMessage(prompt);
                 const response = result.response;
                 const text = response.text();
-                _.get(this).discordChat.send(text);
+                _.get(this).generalChat.send(text);
             }catch(err){
               this._errorHandler(err);
             }

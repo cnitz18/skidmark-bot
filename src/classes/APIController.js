@@ -48,11 +48,6 @@ module.exports = (() => {
             }
         }
 
-        handleLeagueUpdate(request,response,ctx){
-            _.get(ctx).bot.sendLeagueUpdateMessage();
-            response.send('Done');
-        }
-
         handleRaceSummary(request,response,ctx){
             const withLeague = request.query['with-league'] === 'true'
             console.log('handle race summary:',request.params,withLeague);
