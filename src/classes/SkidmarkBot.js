@@ -58,10 +58,9 @@ module.exports = (() => {
                    
                 _.get(this).botClient.on('messageCreate', msg => {
                     if( msg.author.id !== _.get(this).botClient.user.id){
-                        if (msg.content === 'Hello') {
-                            msg.reply(`Hello ${msg.author.username}`);
-                        }
-                        else if( msg.content.indexOf(BOT_USER_ID) !== -1 ){
+                        if( msg.content.indexOf(BOT_USER_ID) !== -1 &&
+                            (process.env.NODE_ENV !== 'dev' 
+                                || process.env.ALLOWED_DEV_CHANNELS.split(',').includes(msg.channelId))){
                             this.geminiGeneralChat(msg.author.username, msg.content,msg.channelId);
                         }
                     }
