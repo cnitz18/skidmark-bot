@@ -50,7 +50,10 @@ module.exports = (() => {
             if(!_.get(this).isInit){
                 _.get(this).botClient.on('ready', () => {
                     console.log(`Logged in as ${_.get(this).botClient.user.tag} to environment "${process.env.NODE_ENV}"!`);
-                    _.get(this).generalChat = _.get(this).botClient.channels.cache.find(channel => channel.name === 'general');
+                    _.get(this).generalChat = _.get(this).botClient.channels.cache.get( 
+                        process.env.NODE_ENV === 'dev'
+                        ? process.env.DEV_GENERAL_CHANNEL 
+                        : process.env.PROD_GENERAL_CHANNEL );
                 });
                    
                 // Log In our bot
@@ -59,7 +62,7 @@ module.exports = (() => {
                 _.get(this).botClient.on('messageCreate', msg => {
                     if( msg.author.id !== _.get(this).botClient.user.id){
                         var isDev = process.env.NODE_ENV === 'dev';
-                        var isDevChannel = process.env.ALLOWED_DEV_CHANNELS.split(',').includes(msg.channelId);
+                        var isDevChannel = process.env.ALLOWED_DEV_CHANNELS?.split(',').includes(msg.channelId) ?? false;
                         if( msg.content.indexOf(BOT_USER_ID) !== -1 &&
                             (isDev && isDevChannel || !isDev && !isDevChannel)){
                             this.geminiGeneralChat(msg.author.username, msg.content,msg.channelId);
