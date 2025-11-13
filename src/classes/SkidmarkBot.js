@@ -224,8 +224,13 @@ module.exports = (() => {
                     const leagueDetails = await fetch(process.env.SKIDMARK_API + `/leagues/get/stats/?id=${raceData?.race?.league}`);
                     const leagueData = await leagueDetails.json();
                     prompt += ". Next, here are the league details for the league that hosted this race. "
-                        + "The 'snapshot' array outlines how the standings have progressed throughout the season, for you to reference. "
-                        + "Please include a separate section of no less than 4 sentences summarizing this information in your summary: " 
+                        + "The 'scoreboard_entries' array outlines the current standings. "
+                        + "The 'snapshot' array outlines how the standings have progressed throughout the season from week to week, make at least one reference to how the season is developing. "
+                        + "The 'schedule' array is a list of all the dates and tracks the league will be racing at this season. "
+                        + "If all races in the 'schedule' array have already taken place, then the league is complete. Congratulate the champion, summarize the season, and make note of any particularly close battles. "
+                        + "If not all races in the 'schedule' array have taken place yet, then give us a look ahead to future races in a creative way."
+                        + "You could make a note of any particularly close battles for position in the standings (if applicable), as well as any upcoming tracks that may shake up the order. Or any other ideas you can think of. "
+                        + "Include a separate section of no greater than 8 and no less than 4 sentences summarizing this information in your summary: " 
                         + JSON.stringify(leagueData);
                 }
                 const result = await _.get(this).aiChat.sendMessage(prompt);
