@@ -5,7 +5,7 @@ const { tools } = require('./GeminiFunctions');
 const { formatLapTime } = require('../utils/formatters');
 
 const BOT_USER_ID = '@' + process.env.DISCORD_BOT_ID;
-const MODEL = "gemini-2.0-flash";
+const MODEL = "gemini-2.5-flash";
 
 const SYSTEM_INSTRUCTIONS = 
     "Your name is Chorley, and you are a bot designed to chat with users in a Discord channel for a simulator racing league. " +
