@@ -240,6 +240,40 @@ module.exports = (() => {
                 const result = await _.get(this).aiChat.sendMessage(prompt);
                 const response = result.response;
                 const text = response.text();
+                
+                // Guard against empty responses with diagnostic info
+                if (!text || text.trim() === '') {
+                    console.error('Gemini returned empty response for race summary');
+                    
+                    // Log diagnostic info from Gemini
+                    const candidates = response.candidates || [];
+                    const promptFeedback = response.promptFeedback;
+                    
+                    console.error('Prompt feedback:', JSON.stringify(promptFeedback, null, 2));
+                    console.error('Candidates:', JSON.stringify(candidates.map(c => ({
+                        finishReason: c.finishReason,
+                        safetyRatings: c.safetyRatings,
+                        citationMetadata: c.citationMetadata
+                    })), null, 2));
+                    
+                    // Check for specific issues
+                    const finishReason = candidates[0]?.finishReason;
+                    let errorMsg = "I tried to summarize that race but came up empty.";
+                    
+                    if (finishReason === 'SAFETY') {
+                        errorMsg += " The response was blocked for safety reasons.";
+                    } else if (finishReason === 'MAX_TOKENS') {
+                        errorMsg += " The response was cut off due to length limits.";
+                    } else if (finishReason === 'RECITATION') {
+                        errorMsg += " The response was blocked due to recitation concerns.";
+                    } else if (promptFeedback?.blockReason) {
+                        errorMsg += ` The prompt was blocked: ${promptFeedback.blockReason}`;
+                    }
+                    
+                    _.get(this).generalChat.send(errorMsg);
+                    return;
+                }
+                
                 _.get(this).generalChat.send(text);
             }catch(err){
               this._errorHandler(err);
