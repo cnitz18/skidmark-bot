@@ -239,7 +239,26 @@ module.exports = (() => {
                 }
                 const result = await _.get(this).aiChat.sendMessage(prompt);
                 const response = result.response;
-                const text = response.text();
+                
+                // More thorough text extraction with detailed logging
+                let text = '';
+                try {
+                    text = response.text();
+                } catch (textError) {
+                    console.error('Error calling response.text():', textError.message);
+                }
+                
+                // If text() failed or returned empty, try alternative extraction
+                if (!text || text.trim() === '') {
+                    const candidates = response.candidates || [];
+                    console.log('Raw candidates structure:', JSON.stringify(candidates, null, 2));
+                    
+                    // Try to get text from candidates directly
+                    if (candidates[0]?.content?.parts?.[0]?.text) {
+                        text = candidates[0].content.parts[0].text;
+                        console.log('Extracted text from candidates.content.parts');
+                    }
+                }
                 
                 // Guard against empty responses with diagnostic info
                 if (!text || text.trim() === '') {
@@ -253,8 +272,12 @@ module.exports = (() => {
                     console.error('Candidates:', JSON.stringify(candidates.map(c => ({
                         finishReason: c.finishReason,
                         safetyRatings: c.safetyRatings,
-                        citationMetadata: c.citationMetadata
+                        citationMetadata: c.citationMetadata,
+                        content: c.content
                     })), null, 2));
+                    
+                    // Also log the prompt size to check if it's too large
+                    console.error('Prompt length:', prompt.length, 'characters');
                     
                     // Check for specific issues
                     const finishReason = candidates[0]?.finishReason;
