@@ -86,56 +86,73 @@ module.exports = (() => {
                 _.get(this).generalChat.send("Sorry, I'm having technical difficulties at the moment.");
         }
 
+        /**
+         * Process a Gemini response, handling any function calls and returning the final text
+         * @param {object} response - Initial Gemini response
+         * @returns {Promise<string>} Final text response after processing any function calls
+         */
+        async processGeminiResponse(response) {
+            let functionCalls = response.functionCalls();
+            let intermediateText = null;
+            
+            // Loop until we get a text response (no more function calls)
+            while (functionCalls && functionCalls.length > 0) {
+                // Capture any intermediate text (Gemini might say "Let me look that up...")
+                const text = response.text();
+                if (text && text.trim()) {
+                    intermediateText = text.replace(/"/g, "");
+                }
+                
+                console.log(`${functionCalls.length} function call(s) requested: ${functionCalls.map(fc => fc.name).join(", ")}`);
+                
+                // Execute all function calls in parallel
+                const functionResponses = await Promise.all(
+                    functionCalls.map(async (functionCall) => {
+                        console.log(`  Executing: ${functionCall.name}(${JSON.stringify(functionCall.args)})`);
+                        const result = await this.executeFunction(functionCall.name, functionCall.args);
+                        return {
+                            functionResponse: {
+                                name: functionCall.name,
+                                response: {
+                                    name: functionCall.name,
+                                    content: result
+                                }
+                            }
+                        };
+                    })
+                );
+                
+                console.log(`  All functions completed, sending results back to Gemini`);
+                
+                // Send function results back to Gemini
+                const result = await _.get(this).aiChat.sendMessage(functionResponses);
+                response = result.response;
+                functionCalls = response.functionCalls();
+            }
+            
+            // Get final text
+            let finalText = response.text();
+            if (finalText) {
+                finalText = finalText.replace(/"/g, "");
+            }
+            
+            return { text: finalText, intermediateText };
+        }
+
         async geminiGeneralChat(username,usermsg,channelId){
             try {
                 const chatChannel = _.get(this).botClient.channels.cache.get(channelId);
                 const result = await _.get(this).aiChat.sendMessage(username + " >> " + usermsg);
-                let response = result.response;
                 
-                // Check if Gemini wants to call function(s)
-                let functionCalls = response.functionCalls();
+                const { text, intermediateText } = await this.processGeminiResponse(result.response);
                 
-                if (functionCalls && functionCalls.length > 0) {
-                    // Send the initial "thinking" response to Discord first
-                    let initialText = response.text();
-                    if (initialText) {
-                        initialText = initialText.replace(/"/g,""); // remove excess quotes
-                        await chatChannel.send(initialText);
-                    }
-                    
-                    console.log(`${functionCalls.length} function call(s) requested: ${functionCalls.map(fc => fc.name).join(", ")}`);
-                    
-                    // Execute all function calls in parallel for speed
-                    const functionResponses = await Promise.all(
-                        functionCalls.map(async (functionCall) => {
-                            console.log(`  Executing: ${functionCall.name}(${JSON.stringify(functionCall.args)})`);
-                            const result = await this.executeFunction(functionCall.name, functionCall.args);
-                            return {
-                                functionResponse: {
-                                    name: functionCall.name,
-                                    response: {
-                                        name: functionCall.name,
-                                        content: result
-                                    }
-                                }
-                            };
-                        })
-                    );
-                    
-                    console.log(`  All functions completed, sending results back to Gemini`);
-                    
-                    // Send all function results back to Gemini
-                    const result2 = await _.get(this).aiChat.sendMessage(functionResponses);
-                    response = result2.response;
-                    
-                    // Send the final response with function results
-                    let finalText = response.text();
-                    finalText = finalText.replace(/"/g,""); // remove excess quotes in string
-                    await chatChannel.send(finalText);
-                } else {
-                    // No function calls, just send the response
-                    let text = response.text();
-                    text = text.replace(/"/g,""); // remove excess quotes in string
+                // Send intermediate text first if present (e.g., "Let me look that up...")
+                if (intermediateText) {
+                    await chatChannel.send(intermediateText);
+                }
+                
+                // Send final response
+                if (text && text.trim()) {
                     await chatChannel.send(text);
                 }
             } catch(err) {
@@ -237,63 +254,14 @@ module.exports = (() => {
                         + "Include a separate section of no greater than 8 and no less than 4 sentences summarizing this information in your summary: " 
                         + JSON.stringify(leagueData);
                 }
+                
                 const result = await _.get(this).aiChat.sendMessage(prompt);
-                const response = result.response;
+                const { text } = await this.processGeminiResponse(result.response);
                 
-                // More thorough text extraction with detailed logging
-                let text = '';
-                try {
-                    text = response.text();
-                } catch (textError) {
-                    console.error('Error calling response.text():', textError.message);
-                }
-                
-                // If text() failed or returned empty, try alternative extraction
-                if (!text || text.trim() === '') {
-                    const candidates = response.candidates || [];
-                    console.log('Raw candidates structure:', JSON.stringify(candidates, null, 2));
-                    
-                    // Try to get text from candidates directly
-                    if (candidates[0]?.content?.parts?.[0]?.text) {
-                        text = candidates[0].content.parts[0].text;
-                        console.log('Extracted text from candidates.content.parts');
-                    }
-                }
-                
-                // Guard against empty responses with diagnostic info
+                // Guard against empty responses
                 if (!text || text.trim() === '') {
                     console.error('Gemini returned empty response for race summary');
-                    
-                    // Log diagnostic info from Gemini
-                    const candidates = response.candidates || [];
-                    const promptFeedback = response.promptFeedback;
-                    
-                    console.error('Prompt feedback:', JSON.stringify(promptFeedback, null, 2));
-                    console.error('Candidates:', JSON.stringify(candidates.map(c => ({
-                        finishReason: c.finishReason,
-                        safetyRatings: c.safetyRatings,
-                        citationMetadata: c.citationMetadata,
-                        content: c.content
-                    })), null, 2));
-                    
-                    // Also log the prompt size to check if it's too large
-                    console.error('Prompt length:', prompt.length, 'characters');
-                    
-                    // Check for specific issues
-                    const finishReason = candidates[0]?.finishReason;
-                    let errorMsg = "I tried to summarize that race but came up empty.";
-                    
-                    if (finishReason === 'SAFETY') {
-                        errorMsg += " The response was blocked for safety reasons.";
-                    } else if (finishReason === 'MAX_TOKENS') {
-                        errorMsg += " The response was cut off due to length limits.";
-                    } else if (finishReason === 'RECITATION') {
-                        errorMsg += " The response was blocked due to recitation concerns.";
-                    } else if (promptFeedback?.blockReason) {
-                        errorMsg += ` The prompt was blocked: ${promptFeedback.blockReason}`;
-                    }
-                    
-                    _.get(this).generalChat.send(errorMsg);
+                    _.get(this).generalChat.send("I tried to summarize that race but came up empty. Try again?");
                     return;
                 }
                 
