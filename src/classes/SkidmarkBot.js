@@ -46,6 +46,10 @@ module.exports = (() => {
             return _.get(this).generalChat;
         }
 
+        getModel(){
+            return _.get(this).model;
+        }
+
         init(){
             if(!_.get(this).isInit){
                 _.get(this).botClient.on('ready', () => {
