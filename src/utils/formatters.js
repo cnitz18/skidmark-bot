@@ -61,8 +61,61 @@ function formatGap(milliseconds) {
     return `${sign}${time}s`;
 }
 
+/**
+ * Field names that contain millisecond lap/race times and should be pre-formatted
+ */
+const MS_TIME_FIELDS = [
+    'FastestLapTime',
+    'TotalTime', 
+    'time',
+    'Gap',
+    'gap',
+    'BestLapTime',
+    'LastLapTime',
+    'AverageLapTime',
+    'fastest_lap_time'
+];
+
+/**
+ * Recursively walk through an object and pre-format all millisecond time fields
+ * This prevents Gemini from needing to call formatLapTime for every time value
+ * @param {any} data - The data to format (object, array, or primitive)
+ * @returns {any} The data with all time fields pre-formatted
+ */
+function preFormatRaceData(data) {
+    if (data === null || data === undefined) {
+        return data;
+    }
+    
+    // Handle arrays - recursively format each element
+    if (Array.isArray(data)) {
+        return data.map(item => preFormatRaceData(item));
+    }
+    
+    // Handle objects
+    if (typeof data === 'object') {
+        const formatted = {};
+        for (const [key, value] of Object.entries(data)) {
+            // Check if this field should be formatted as a lap time
+            if (MS_TIME_FIELDS.includes(key) && typeof value === 'number' && value > 0) {
+                // Keep original value and add formatted version
+                formatted[key] = value;
+                formatted[`${key}_formatted`] = formatLapTime(value);
+            } else {
+                // Recursively format nested objects/arrays
+                formatted[key] = preFormatRaceData(value);
+            }
+        }
+        return formatted;
+    }
+    
+    // Return primitives as-is
+    return data;
+}
+
 module.exports = {
     formatLapTime,
     formatRaceDate,
-    formatGap
+    formatGap,
+    preFormatRaceData
 };

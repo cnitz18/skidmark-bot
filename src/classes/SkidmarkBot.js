@@ -2,7 +2,7 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const DatabaseController = require('./DatabaseController');
 const { tools } = require('./GeminiFunctions');
-const { formatLapTime } = require('../utils/formatters');
+const { formatLapTime, preFormatRaceData } = require('../utils/formatters');
 
 const BOT_USER_ID = '@' + process.env.DISCORD_BOT_ID;
 const MODEL = "gemini-2.5-flash";
@@ -297,14 +297,23 @@ module.exports = (() => {
             try {
                 const raceDetails = await fetch(process.env.SKIDMARK_API + `/api/batchupload/sms_stats_data/${raceId}/`);
                 const raceData = await raceDetails.json();
+                
+                // Pre-format all millisecond time fields to avoid Gemini needing to call formatLapTime
+                const formattedRaceData = preFormatRaceData(raceData);
+                
                 let prompt = "I am sending you a json object with this prompt, representing the results of a recent race for the Skidmark Tour Racing League. "
-                    + "Please provide an original and dramatic summary no fewer than four sentences."
-                    + "Be sure to mention the track and vehicle classes, as well as the end_time field (converted from epoch to central time):" + JSON.stringify(raceData);
+                    + "Please provide an original and dramatic summary no fewer than four sentences. "
+                    + "Time fields have been pre-formatted with '_formatted' suffixes (e.g., FastestLapTime_formatted) - use those instead of the raw millisecond values. "
+                    + "Be sure to mention the track and vehicle classes, as well as the end_time field (converted from epoch to central time):" + JSON.stringify(formattedRaceData);
                 
                 if( withLeague && raceData?.race?.league ){
                     // add league info
                     const leagueDetails = await fetch(process.env.SKIDMARK_API + `/leagues/get/stats/?id=${raceData?.race?.league}`);
                     const leagueData = await leagueDetails.json();
+                    
+                    // Pre-format league data too
+                    const formattedLeagueData = preFormatRaceData(leagueData);
+                    
                     prompt += ". Next, here are the league details for the league that hosted this race. "
                         + "The 'scoreboard_entries' array outlines the current standings. "
                         + "The 'snapshot' array outlines how the standings have progressed throughout the season from week to week, make at least one reference to how the season is developing. "
@@ -313,7 +322,7 @@ module.exports = (() => {
                         + "If not all races in the 'schedule' array have taken place yet, then give us a look ahead to future races in a creative way."
                         + "You could make a note of any particularly close battles for position in the standings (if applicable), as well as any upcoming tracks that may shake up the order. Or any other ideas you can think of. "
                         + "Include a separate section of no greater than 8 and no less than 4 sentences summarizing this information in your summary: " 
-                        + JSON.stringify(leagueData);
+                        + JSON.stringify(formattedLeagueData);
                 }
                 
                 const result = await _.get(this).aiChat.sendMessage(prompt);
