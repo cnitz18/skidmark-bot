@@ -94,13 +94,26 @@ module.exports = (() => {
         async processGeminiResponse(response) {
             let functionCalls = response.functionCalls();
             let intermediateText = null;
+            let loopCount = 0;
+            const maxLoops = 10; // Safety limit
+            
+            console.log('=== processGeminiResponse START ===');
+            console.log('Initial functionCalls:', functionCalls ? functionCalls.length : 0);
             
             // Loop until we get a text response (no more function calls)
-            while (functionCalls && functionCalls.length > 0) {
+            while (functionCalls && functionCalls.length > 0 && loopCount < maxLoops) {
+                loopCount++;
+                console.log(`--- Function call loop ${loopCount} ---`);
+                
                 // Capture any intermediate text (Gemini might say "Let me look that up...")
-                const text = response.text();
-                if (text && text.trim()) {
-                    intermediateText = text.replace(/"/g, "");
+                try {
+                    const text = response.text();
+                    console.log('Intermediate text:', text ? text.substring(0, 100) + '...' : '(empty)');
+                    if (text && text.trim()) {
+                        intermediateText = text.replace(/"/g, "");
+                    }
+                } catch (e) {
+                    console.log('No intermediate text (text() threw):', e.message);
                 }
                 
                 console.log(`${functionCalls.length} function call(s) requested: ${functionCalls.map(fc => fc.name).join(", ")}`);
@@ -110,6 +123,7 @@ module.exports = (() => {
                     functionCalls.map(async (functionCall) => {
                         console.log(`  Executing: ${functionCall.name}(${JSON.stringify(functionCall.args)})`);
                         const result = await this.executeFunction(functionCall.name, functionCall.args);
+                        console.log(`  Result for ${functionCall.name}:`, JSON.stringify(result).substring(0, 100));
                         return {
                             functionResponse: {
                                 name: functionCall.name,
@@ -122,19 +136,66 @@ module.exports = (() => {
                     })
                 );
                 
-                console.log(`  All functions completed, sending results back to Gemini`);
+                console.log(`  All ${functionResponses.length} functions completed, sending results back to Gemini`);
                 
                 // Send function results back to Gemini
                 const result = await _.get(this).aiChat.sendMessage(functionResponses);
                 response = result.response;
+                
+                // Log the new response structure
+                const candidates = response.candidates || [];
+                console.log('  New response candidates:', candidates.length);
+                if (candidates[0]) {
+                    console.log('  finishReason:', candidates[0].finishReason);
+                    console.log('  parts count:', candidates[0].content?.parts?.length || 0);
+                    if (candidates[0].content?.parts) {
+                        candidates[0].content.parts.forEach((part, i) => {
+                            if (part.text) console.log(`    part[${i}]: text = "${part.text.substring(0, 50)}..."`);
+                            if (part.functionCall) console.log(`    part[${i}]: functionCall = ${part.functionCall.name}`);
+                        });
+                    }
+                }
+                
                 functionCalls = response.functionCalls();
+                console.log('  Next round functionCalls:', functionCalls ? functionCalls.length : 0);
+            }
+            
+            if (loopCount >= maxLoops) {
+                console.error('WARNING: Hit max loop limit in processGeminiResponse');
             }
             
             // Get final text
-            let finalText = response.text();
+            let finalText = null;
+            try {
+                finalText = response.text();
+                console.log('Final text from response.text():', finalText ? finalText.substring(0, 100) + '...' : '(empty)');
+            } catch (e) {
+                console.log('response.text() threw:', e.message);
+            }
+            
+            // If text() failed, try extracting from candidates
+            if (!finalText || !finalText.trim()) {
+                const candidates = response.candidates || [];
+                console.log('Trying to extract text from candidates...');
+                console.log('Raw candidates:', JSON.stringify(candidates, null, 2));
+                
+                if (candidates[0]?.content?.parts) {
+                    for (const part of candidates[0].content.parts) {
+                        if (part.text) {
+                            finalText = part.text;
+                            console.log('Found text in parts:', finalText.substring(0, 100));
+                            break;
+                        }
+                    }
+                }
+            }
+            
             if (finalText) {
                 finalText = finalText.replace(/"/g, "");
             }
+            
+            console.log('=== processGeminiResponse END ===');
+            console.log('Returning text length:', finalText ? finalText.length : 0);
             
             return { text: finalText, intermediateText };
         }
