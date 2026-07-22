@@ -302,11 +302,26 @@ module.exports = (() => {
                 // Pre-format all millisecond time fields to avoid Gemini needing to call formatLapTime
                 const formattedRaceData = preFormatRaceData(raceData);
                 
-                let prompt = "I am sending you a json object with this prompt, representing the results of a recent race for the Skidmark Tour Racing League. "
-                    + "Please provide an original and dramatic summary no fewer than four sentences. "
-                    + "Time fields have been pre-formatted with '_formatted' suffixes (e.g., FastestLapTime_formatted) - use those instead of the raw millisecond values. "
-                    + "Be sure to mention the track and vehicle classes, as well as the end_time field (converted from epoch to central time):" + JSON.stringify(formattedRaceData);
-                
+                let prompt = `
+                    You are Chorley, delivering a race recap for a sim racing league.
+
+                    STYLE RULES:
+                    - Write a dramatic, entertaining race summary (4–8 sentences).
+                    - Avoid generic phrasing or repeating past structures.
+                    - Focus on storylines: battles, surprises, dominance, mistakes.
+                    - Mix tone: sarcasm, humor, or sharp commentary where appropriate.
+                    - Do NOT sound like a report—sound like a pundit with personality.
+                    - Be concise but impactful.
+
+                    DATA RULES:
+                    - Use *_formatted fields for all time values.
+                    - Mention track, vehicle class, and race end time (Central Time).
+                    - Highlight key drivers and meaningful moments (not full standings).
+
+                    RACE DATA:
+                    ${JSON.stringify(formattedRaceData)}
+                    `;
+
                 if( withLeague && raceData?.race?.league ){
                     // add league info
                     const leagueDetails = await fetch(process.env.SKIDMARK_API + `/leagues/get/stats/?id=${raceData?.race?.league}`);
@@ -315,15 +330,22 @@ module.exports = (() => {
                     // Pre-format league data too
                     const formattedLeagueData = preFormatRaceData(leagueData);
                     
-                    prompt += ". Next, here are the league details for the league that hosted this race. "
-                        + "The 'scoreboard_entries' array outlines the current standings. "
-                        + "The 'snapshot' array outlines how the standings have progressed throughout the season from week to week, make at least one reference to how the season is developing. "
-                        + "The 'schedule' array is a list of all the dates and tracks the league will be racing at this season. "
-                        + "If all races in the 'schedule' array have already taken place, then the league is complete. Congratulate the champion, summarize the season, and make note of any particularly close battles. "
-                        + "If not all races in the 'schedule' array have taken place yet, then give us a look ahead to future races in a creative way."
-                        + "You could make a note of any particularly close battles for position in the standings (if applicable), as well as any upcoming tracks that may shake up the order. Or any other ideas you can think of. "
-                        + "Include a separate section of no greater than 8 and no less than 4 sentences summarizing this information in your summary: " 
-                        + JSON.stringify(formattedLeagueData);
+                    prompt += `
+                        LEAGUE CONTEXT (add 4–8 sentences as a second section):
+
+                        RULES:
+                        - Reference championship standings and trends over time (snapshot).
+                        - Identify at least one battle or shift in momentum.
+                        - If season is complete:
+                        - Congratulate the champion
+                        - Reflect on defining moments or rivalries
+                        - If season is ongoing:
+                        - Preview upcoming races creatively (not just listing tracks)
+                        - Suggest who might gain/lose ground and why
+
+                        LEAGUE DATA:
+                        ${JSON.stringify(formattedLeagueData)}
+                        `;
                 }
                 
                 const result = await _.get(this).aiChat.sendMessage(prompt);
